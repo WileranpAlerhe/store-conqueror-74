@@ -2,6 +2,28 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import legacyIndexHtml from "./legacy-site/index.html?raw";
+import legacyProdutosHtml from "./legacy-site/produtos.html?raw";
+import legacyObrigadoHtml from "./legacy-site/obrigado.html?raw";
+
+// The imported store is a prebuilt static site. Every non-asset request is
+// answered with its prerendered HTML (SPA fallback, as in the original .htaccess).
+const LEGACY_PAGES: Record<string, string> = {
+  "/": legacyIndexHtml,
+  "/produtos": legacyProdutosHtml,
+  "/obrigado": legacyObrigadoHtml,
+};
+
+function legacyResponse(request: Request): Response | undefined {
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  if (path.startsWith("/assets/") || path.startsWith("/@") || path.startsWith("/_")) return;
+  if (/\.[a-z0-9]+$/i.test(path)) return;
+  const html = LEGACY_PAGES[path] ?? legacyIndexHtml;
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+  });
+}
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -47,6 +69,8 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      const legacy = legacyResponse(request);
+      if (legacy) return legacy;
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);
